@@ -120,5 +120,15 @@ public class Appointment {
         this.notes = notes;
     }
     
+    public String getDescription() {
+        return "Cita #" + appointmentId
+             + " | Paciente: " + (patient != null ? patient.getFullName() : "N/A")
+             + " | Médico: "   + (doctor  != null ? doctor.getFullName()  : "N/A")
+             + " | Fecha: "    + date
+             + " | "           + startTime + " - " + endTime
+             + " | Motivo: "   + (reason != null && !reason.isEmpty() ? reason : "Sin motivo")
+             + " | Notas: "    + (notes  != null && !notes.isEmpty()  ? notes  : "Sin notas")
+             + " | Estado: "   + status;
+    }
     
 }
