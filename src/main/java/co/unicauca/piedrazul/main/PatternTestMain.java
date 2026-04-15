@@ -14,16 +14,16 @@ import co.unicauca.piedrazul.domain.services.interfaces.IAppointmentService;
 import co.unicauca.piedrazul.domain.services.interfaces.INotificationService;
 import co.unicauca.piedrazul.infrastructure.factories.PostgresServiceFactory;
 import co.unicauca.piedrazul.infrastructure.persistence.PostgreSQLConnection;
-import co.unicauca.piedrazul.domain.state.PendienteConfirmacionState;
-import co.unicauca.piedrazul.templatemethod.ManualAppointmentScheduling;
-import co.unicauca.piedrazul.templatemethod.UrgentAppointmentScheduling;
+import co.unicauca.piedrazul.adapter.ExternalService;
+import co.unicauca.piedrazul.adapter.ExternalPatientAdapter;
+import co.unicauca.piedrazul.adapter.PatientDataProvider;
 import co.unicauca.piedrazul.adapter.EmailNotificationAdapter;
 import co.unicauca.piedrazul.adapter.EmailNotificationService;
 import co.unicauca.piedrazul.adapter.SmsNotificationAdapter;
 import co.unicauca.piedrazul.adapter.SmsNotificationService;
-import co.unicauca.piedrazul.domain.services.AvailabilityService;
-import co.unicauca.piedrazul.domain.services.validators.ManualAppointmentValidator;
-import co.unicauca.piedrazul.infrastructure.repositories.PostgresAppointmentRepository;
+import co.unicauca.piedrazul.templatemethod.AppointmentScheduler;
+import co.unicauca.piedrazul.templatemethod.AutonomousScheduler;
+import co.unicauca.piedrazul.templatemethod.ManualScheduler;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +38,6 @@ import java.util.List;
 
 public class PatternTestMain {
 
-    // Datos de prueba existentes en la base de datos Railway
     private static final int DOCTOR_ID = 1002;
     private static final int PATIENT_ID = 2002;
     private static final LocalDate TEST_DATE = LocalDate.of(2026, 4, 20);
@@ -52,9 +51,7 @@ public class PatternTestMain {
 
         try {
             System.setOut(new PrintStream(System.out, true, StandardCharsets.UTF_8));
-        } catch (Exception e) {
-            // Error de encoding no crítico
-        }
+        } catch (Exception e) { }
 
         // Inicialización de entidades
         Doctor doctor = new Doctor();
@@ -93,7 +90,6 @@ public class PatternTestMain {
         System.out.println("\nEjecutando facade.createAppointment()...");
         try {
             facade.createAppointment(appointment);
-
             int newId = getLastInsertedId(DOCTOR_ID, TEST_DATE.toString(), TEST_START_TIME.toString());
             if (newId > 0) {
                 createdIds.add(newId);
@@ -106,7 +102,6 @@ public class PatternTestMain {
 
         // --- PATRÓN DECORATOR ---
         System.out.println("\n--- DEMOSTRACIÓN PATRÓN DECORATOR ---");
-
         System.out.println("\nDescripción base:");
         System.out.println(appointment.getDescription());
 
@@ -124,73 +119,20 @@ public class PatternTestMain {
 
         // --- PATRÓN STATE ---
         System.out.println("\n--- DEMOSTRACIÓN PATRÓN STATE ---");
-
-        Appointment citaState = new Appointment(
-                TEST_DATE, TEST_START_TIME, TEST_END_TIME,
-                AppointmentStatus.AGENDADA, doctor, patient
-        );
+        Appointment citaState = new Appointment(TEST_DATE, TEST_START_TIME, TEST_END_TIME, AppointmentStatus.AGENDADA, doctor, patient);
         citaState.setReason(TEST_REASON);
 
         System.out.println("Estado inicial: " + citaState.getState().getNombre());
-
-        System.out.println("\nEjecutando confirmar()...");
         citaState.confirmar();
         System.out.println("Estado actual: " + citaState.getState().getNombre());
-
-        System.out.println("\nEjecutando atender()...");
         citaState.atender();
         System.out.println("Estado actual: " + citaState.getState().getNombre());
-
-        System.out.println("\nIntentando cancelar() sobre estado final (atendida):");
-        try {
-            citaState.cancelar();
-        } catch (IllegalStateException e) {
-            System.out.println("[Esperado] " + e.getMessage());
-        }
-
-        System.out.println("\nFlujo alternativo: reagendar -> confirmar -> noAsistio");
-        Appointment citaAlt = new Appointment(
-                TEST_DATE, TEST_START_TIME, TEST_END_TIME,
-                AppointmentStatus.AGENDADA, doctor, patient
-        );
-        citaAlt.setReason(TEST_REASON);
-
-        citaAlt.confirmar();
-        System.out.println("Tras confirmar: " + citaAlt.getState().getNombre());
-        citaAlt.reagendar();
-        System.out.println("Tras reagendar: " + citaAlt.getState().getNombre());
-        citaAlt.confirmar();
-        System.out.println("Tras confirmar reagendada: " + citaAlt.getState().getNombre());
-        citaAlt.noAsistio();
-        System.out.println("Tras noAsistio: " + citaAlt.getState().getNombre());
-
-        System.out.println("\nFlujo con PendienteConfirmacion:");
-        Appointment citaPendiente = new Appointment(
-                TEST_DATE, TEST_START_TIME, TEST_END_TIME,
-                AppointmentStatus.AGENDADA, doctor, patient
-        );
-        citaPendiente.setReason(TEST_REASON);
-        citaPendiente.setState(new PendienteConfirmacionState());
-        System.out.println("Estado inicial manual: " + citaPendiente.getState().getNombre());
-        citaPendiente.confirmar();
-        System.out.println("Tras confirmar: " + citaPendiente.getState().getNombre());
 
         // --- PATRÓN TEMPLATE METHOD ---
         System.out.println("\n--- DEMOSTRACIÓN PATRÓN TEMPLATE METHOD ---");
 
-        // Instancias necesarias para Template Method
-        PostgresAppointmentRepository apptRepo = new PostgresAppointmentRepository();
-        AvailabilityService availabilityService = PostgresServiceFactory.getInstance().createAvailabilityService();
-        ManualAppointmentValidator tmValidator = new ManualAppointmentValidator();
-
-        // Subclase 1: Cita Manual
-        ManualAppointmentScheduling manualScheduling = new ManualAppointmentScheduling(
-                apptRepo,
-                availabilityService,
-                tmValidator
-        );
-
-        Appointment citaTM = new Appointment(
+        AppointmentScheduler autonomous = new AutonomousScheduler();
+        Appointment citaAutonoma = new Appointment(
                 TEST_DATE.plusDays(5),
                 LocalTime.of(10, 0),
                 LocalTime.of(10, 30),
@@ -198,29 +140,14 @@ public class PatternTestMain {
                 doctor,
                 patient
         );
-        citaTM.setReason("Consulta de prueba Template Method");
+        citaAutonoma.setReason("Consulta de control por sistema autónomo");
 
-        System.out.println("\nEjecutando ManualAppointmentScheduling.scheduleAppointment()...");
-        try {
-            Appointment result = manualScheduling.scheduleAppointment(citaTM);
-            System.out.println("[Template Method - Manual] Cita agendada para: "
-                    + result.getDate() + " a las " + result.getStartTime());
+        System.out.println("\nEjecutando AutonomousScheduler.schedule()...");
+        autonomous.schedule(citaAutonoma);
+        System.out.println("Estado tras schedule: " + citaAutonoma.getState().getNombre());
 
-            int tmId = getLastInsertedId(DOCTOR_ID,
-                    citaTM.getDate().toString(),
-                    citaTM.getStartTime().toString());
-            if (tmId > 0) {
-                createdIds.add(tmId);
-                System.out.println("[Template Method - Manual] ID generado en BD: " + tmId);
-            }
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            System.out.println("[Template Method - Manual - Validación] " + e.getMessage());
-        }
-
-        // Subclase 2: Cita Urgente
-        UrgentAppointmentScheduling urgentScheduling = new UrgentAppointmentScheduling(apptRepo);
-
-        Appointment citaUrgente = new Appointment(
+        AppointmentScheduler manual = new ManualScheduler();
+        Appointment citaManual = new Appointment(
                 TEST_DATE.plusDays(6),
                 LocalTime.of(11, 0),
                 LocalTime.of(11, 30),
@@ -228,105 +155,65 @@ public class PatternTestMain {
                 doctor,
                 patient
         );
-        citaUrgente.setReason("Dolor fuerte en el pecho");
+        citaManual.setReason("Consulta asignada por agendador");
 
-        System.out.println("\nEjecutando UrgentAppointmentScheduling.scheduleAppointment()...");
-        try {
-            Appointment resultUrgente = urgentScheduling.scheduleAppointment(citaUrgente);
-            System.out.println("[Template Method - Urgente] Cita urgente agendada para: "
-                    + resultUrgente.getDate() + " a las " + resultUrgente.getStartTime());
-
-            int urgId = getLastInsertedId(DOCTOR_ID,
-                    citaUrgente.getDate().toString(),
-                    citaUrgente.getStartTime().toString());
-            if (urgId > 0) {
-                createdIds.add(urgId);
-                System.out.println("[Template Method - Urgente] ID generado en BD: " + urgId);
-            }
-        } catch (IllegalArgumentException | IllegalStateException e) {
-            System.out.println("[Template Method - Urgente - Validación] " + e.getMessage());
-        }
-
-        // Diferencia clave entre subclases
-        System.out.println("\nDiferencia clave:");
-        System.out.println("- ManualAppointmentScheduling valida disponibilidad estrictamente.");
-        System.out.println("- UrgentAppointmentScheduling omite esa verificación.");
+        System.out.println("\nEjecutando ManualScheduler.schedule()...");
+        manual.schedule(citaManual);
+        System.out.println("Estado tras schedule: " + citaManual.getState().getNombre());
 
         // --- PATRÓN ADAPTER ---
         System.out.println("\n--- DEMOSTRACIÓN PATRÓN ADAPTER ---");
 
-        System.out.println("\n[1] ConsoleNotificationService — implementación directa de INotificationService:");
-        INotificationService consoleNotif = new ConsoleNotificationService();
-        consoleNotif.notifyUser(appointment);
+        System.out.println("\n[1] ExternalPatientAdapter — adapta ExternalService (JSON) a PatientDataProvider:");
+        PatientDataProvider provider = new ExternalPatientAdapter(new ExternalService());
+        Patient externalPatient = provider.getPatient();
+        System.out.println("Paciente obtenido desde JSON: "
+                + externalPatient.getFirstName() + " " + externalPatient.getFirstSurname());
 
-        System.out.println("\n[2] EmailNotificationAdapter — adapta EmailNotificationService:");
-        INotificationService emailNotif = new EmailNotificationAdapter(
-                new EmailNotificationService()
-        );
+        System.out.println("\n[2] EmailNotificationAdapter — adapta EmailNotificationService a INotificationService:");
+        INotificationService emailNotif = new EmailNotificationAdapter(new EmailNotificationService());
         emailNotif.notifyUser(appointment);
 
-        System.out.println("\n[3] SmsNotificationAdapter — adapta SmsNotificationService:");
-        INotificationService smsNotif = new SmsNotificationAdapter(
-                new SmsNotificationService()
-        );
+        System.out.println("\n[3] SmsNotificationAdapter — adapta SmsNotificationService a INotificationService:");
+        INotificationService smsNotif = new SmsNotificationAdapter(new SmsNotificationService());
         smsNotif.notifyUser(appointment);
-
-        System.out.println("\nPolimorfismo: los tres se tratan igual desde INotificationService:");
-        List<INotificationService> notifiers = List.of(consoleNotif, emailNotif, smsNotif);
-        for (INotificationService notifier : notifiers) {
-            notifier.notifyUser(appointment);
-        }
 
         // --- FINALIZACIÓN Y LIMPIEZA ---
         System.out.println("\n--- FINALIZACIÓN DE PRUEBAS ---");
-
         System.out.println("\nEjecutando facade.cancelAppointment() para la cita original...");
         facade.cancelAppointment(appointment);
 
         System.out.println("\nLimpiando registros de prueba en BD...");
         cleanup();
-
         System.out.println("\nPruebas terminadas correctamente.");
     }
 
     private static int getLastInsertedId(int doctorId, String date, String startTime) {
-        String sql = """
-                SELECT appt_id FROM appointments
-                WHERE appt_doct_id = ?
-                  AND appt_date = ?::date
-                  AND appt_start_time = ?::time
-                ORDER BY appt_id DESC
-                LIMIT 1
-                """;
+        String sql = "SELECT appt_id FROM appointments WHERE appt_doct_id = ? AND appt_date = ?::date AND appt_start_time = ?::time ORDER BY appt_id DESC LIMIT 1";
         try (Connection conn = PostgreSQLConnection.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
             ps.setString(2, date);
             ps.setString(3, startTime);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt("appt_id");
-                }
+                if (rs.next()) return rs.getInt("appt_id");
             }
         } catch (SQLException e) {
-            System.err.println("[Error] Error al buscar ID: " + e.getMessage());
+            System.err.println("[Error] " + e.getMessage());
         }
         return -1;
     }
 
     private static void cleanup() {
-        if (createdIds.isEmpty()) {
-            System.out.println("[Cleanup] No hay citas de prueba que eliminar.");
-            return;
-        }
+        if (createdIds.isEmpty()) return;
         String sql = "DELETE FROM appointments WHERE appt_id = ?";
         try (Connection conn = PostgreSQLConnection.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int id : createdIds) {
                 ps.setInt(1, id);
-                int rows = ps.executeUpdate();
-                System.out.println("[Cleanup] Cita ID " + id + (rows > 0 ? " eliminada" : " no encontrada"));
+                ps.executeUpdate();
+                System.out.println("[Cleanup] Cita ID " + id + " eliminada");
             }
         } catch (SQLException e) {
-            System.err.println("[Cleanup] Error al eliminar: " + e.getMessage());
+            System.err.println("[Cleanup Error] " + e.getMessage());
         }
         createdIds.clear();
     }
