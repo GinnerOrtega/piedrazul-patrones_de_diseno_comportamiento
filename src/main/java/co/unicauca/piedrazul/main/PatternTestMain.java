@@ -15,6 +15,15 @@ import co.unicauca.piedrazul.domain.services.interfaces.INotificationService;
 import co.unicauca.piedrazul.infrastructure.factories.PostgresServiceFactory;
 import co.unicauca.piedrazul.infrastructure.persistence.PostgreSQLConnection;
 import co.unicauca.piedrazul.domain.state.PendienteConfirmacionState;
+import co.unicauca.piedrazul.templatemethod.ManualAppointmentScheduling;
+import co.unicauca.piedrazul.templatemethod.UrgentAppointmentScheduling;
+import co.unicauca.piedrazul.adapter.EmailNotificationAdapter;
+import co.unicauca.piedrazul.adapter.EmailNotificationService;
+import co.unicauca.piedrazul.adapter.SmsNotificationAdapter;
+import co.unicauca.piedrazul.adapter.SmsNotificationService;
+import co.unicauca.piedrazul.domain.services.AvailabilityService;
+import co.unicauca.piedrazul.domain.services.validators.ManualAppointmentValidator;
+import co.unicauca.piedrazul.infrastructure.repositories.PostgresAppointmentRepository;
 
 import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
@@ -166,9 +175,111 @@ public class PatternTestMain {
         citaPendiente.confirmar();
         System.out.println("Tras confirmar: " + citaPendiente.getState().getNombre());
 
+        // --- PATRÓN TEMPLATE METHOD ---
+        System.out.println("\n--- DEMOSTRACIÓN PATRÓN TEMPLATE METHOD ---");
+
+        // Instancias necesarias para Template Method
+        PostgresAppointmentRepository apptRepo = new PostgresAppointmentRepository();
+        AvailabilityService availabilityService = PostgresServiceFactory.getInstance().createAvailabilityService();
+        ManualAppointmentValidator tmValidator = new ManualAppointmentValidator();
+
+        // Subclase 1: Cita Manual
+        ManualAppointmentScheduling manualScheduling = new ManualAppointmentScheduling(
+                apptRepo,
+                availabilityService,
+                tmValidator
+        );
+
+        Appointment citaTM = new Appointment(
+                TEST_DATE.plusDays(5),
+                LocalTime.of(10, 0),
+                LocalTime.of(10, 30),
+                AppointmentStatus.AGENDADA,
+                doctor,
+                patient
+        );
+        citaTM.setReason("Consulta de prueba Template Method");
+
+        System.out.println("\nEjecutando ManualAppointmentScheduling.scheduleAppointment()...");
+        try {
+            Appointment result = manualScheduling.scheduleAppointment(citaTM);
+            System.out.println("[Template Method - Manual] Cita agendada para: "
+                    + result.getDate() + " a las " + result.getStartTime());
+
+            int tmId = getLastInsertedId(DOCTOR_ID,
+                    citaTM.getDate().toString(),
+                    citaTM.getStartTime().toString());
+            if (tmId > 0) {
+                createdIds.add(tmId);
+                System.out.println("[Template Method - Manual] ID generado en BD: " + tmId);
+            }
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("[Template Method - Manual - Validación] " + e.getMessage());
+        }
+
+        // Subclase 2: Cita Urgente
+        UrgentAppointmentScheduling urgentScheduling = new UrgentAppointmentScheduling(apptRepo);
+
+        Appointment citaUrgente = new Appointment(
+                TEST_DATE.plusDays(6),
+                LocalTime.of(11, 0),
+                LocalTime.of(11, 30),
+                AppointmentStatus.AGENDADA,
+                doctor,
+                patient
+        );
+        citaUrgente.setReason("Dolor fuerte en el pecho");
+
+        System.out.println("\nEjecutando UrgentAppointmentScheduling.scheduleAppointment()...");
+        try {
+            Appointment resultUrgente = urgentScheduling.scheduleAppointment(citaUrgente);
+            System.out.println("[Template Method - Urgente] Cita urgente agendada para: "
+                    + resultUrgente.getDate() + " a las " + resultUrgente.getStartTime());
+
+            int urgId = getLastInsertedId(DOCTOR_ID,
+                    citaUrgente.getDate().toString(),
+                    citaUrgente.getStartTime().toString());
+            if (urgId > 0) {
+                createdIds.add(urgId);
+                System.out.println("[Template Method - Urgente] ID generado en BD: " + urgId);
+            }
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            System.out.println("[Template Method - Urgente - Validación] " + e.getMessage());
+        }
+
+        // Diferencia clave entre subclases
+        System.out.println("\nDiferencia clave:");
+        System.out.println("- ManualAppointmentScheduling valida disponibilidad estrictamente.");
+        System.out.println("- UrgentAppointmentScheduling omite esa verificación.");
+
+        // --- PATRÓN ADAPTER ---
+        System.out.println("\n--- DEMOSTRACIÓN PATRÓN ADAPTER ---");
+
+        System.out.println("\n[1] ConsoleNotificationService — implementación directa de INotificationService:");
+        INotificationService consoleNotif = new ConsoleNotificationService();
+        consoleNotif.notifyUser(appointment);
+
+        System.out.println("\n[2] EmailNotificationAdapter — adapta EmailNotificationService:");
+        INotificationService emailNotif = new EmailNotificationAdapter(
+                new EmailNotificationService()
+        );
+        emailNotif.notifyUser(appointment);
+
+        System.out.println("\n[3] SmsNotificationAdapter — adapta SmsNotificationService:");
+        INotificationService smsNotif = new SmsNotificationAdapter(
+                new SmsNotificationService()
+        );
+        smsNotif.notifyUser(appointment);
+
+        System.out.println("\nPolimorfismo: los tres se tratan igual desde INotificationService:");
+        List<INotificationService> notifiers = List.of(consoleNotif, emailNotif, smsNotif);
+        for (INotificationService notifier : notifiers) {
+            notifier.notifyUser(appointment);
+        }
+
         // --- FINALIZACIÓN Y LIMPIEZA ---
         System.out.println("\n--- FINALIZACIÓN DE PRUEBAS ---");
-        
+
         System.out.println("\nEjecutando facade.cancelAppointment() para la cita original...");
         facade.cancelAppointment(appointment);
 
@@ -187,8 +298,7 @@ public class PatternTestMain {
                 ORDER BY appt_id DESC
                 LIMIT 1
                 """;
-        try (Connection conn = PostgreSQLConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = PostgreSQLConnection.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, doctorId);
             ps.setString(2, date);
             ps.setString(3, startTime);
@@ -209,8 +319,7 @@ public class PatternTestMain {
             return;
         }
         String sql = "DELETE FROM appointments WHERE appt_id = ?";
-        try (Connection conn = PostgreSQLConnection.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = PostgreSQLConnection.getConnection(); PreparedStatement ps = conn.prepareStatement(sql)) {
             for (int id : createdIds) {
                 ps.setInt(1, id);
                 int rows = ps.executeUpdate();
