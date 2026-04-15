@@ -1,8 +1,10 @@
 package co.unicauca.piedrazul.domain.entities;
 
 import co.unicauca.piedrazul.domain.entities.enums.AppointmentStatus;
+import co.unicauca.piedrazul.domain.state.CreadaState;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import co.unicauca.piedrazul.domain.state.IAppointmentState;
 
 /**
  * @author Valentina Añasco
@@ -17,14 +19,16 @@ public class Appointment {
     private LocalDate date;
     private LocalTime startTime;
     private LocalTime endTime;
-    private AppointmentStatus status; // AGENDADA, CANCELADA, ATENDIDA
+    private AppointmentStatus status;
     private Doctor doctor;
     private Patient patient;
-    private String reason;   
-    private String notes;    
+    private String reason;
+    private String notes;
 
-    // Constructor vacío (necesario para mapeo desde repositorio)
+    private IAppointmentState state;
+
     public Appointment() {
+        this.state = new CreadaState();
     }
 
     public Appointment(int appointmentId, LocalDate date, LocalTime startTime, LocalTime endTime, Doctor doctor, Patient patient, String reason, String notes, AppointmentStatus status) {
@@ -37,6 +41,7 @@ public class Appointment {
         this.patient = patient;
         this.reason = reason;
         this.notes = notes;
+        this.state = new CreadaState();
     }
 
     public Appointment(LocalDate date, LocalTime startTime, LocalTime endTime, AppointmentStatus status, Doctor doctor, Patient patient) {
@@ -46,6 +51,35 @@ public class Appointment {
         this.status = status;
         this.doctor = doctor;
         this.patient = patient;
+        this.state = new CreadaState();
+    }
+
+    public void confirmar() {
+        state.confirmar(this);
+    }
+
+    public void atender() {
+        state.atender(this);
+    }
+
+    public void cancelar() {
+        state.cancelar(this);
+    }
+
+    public void reagendar() {
+        state.reagendar(this);
+    }
+
+    public void noAsistio() {
+        state.noAsistio(this);
+    }
+
+    public IAppointmentState getState() {
+        return state;
+    }
+
+    public void setState(IAppointmentState state) {
+        this.state = state;
     }
 
     public int getAppointmentId() {
@@ -119,16 +153,15 @@ public class Appointment {
     public void setNotes(String notes) {
         this.notes = notes;
     }
-    
+
     public String getDescription() {
         return "Cita #" + appointmentId
-             + " | Paciente: " + (patient != null ? patient.getFullName() : "N/A")
-             + " | Médico: "   + (doctor  != null ? doctor.getFullName()  : "N/A")
-             + " | Fecha: "    + date
-             + " | "           + startTime + " - " + endTime
-             + " | Motivo: "   + (reason != null && !reason.isEmpty() ? reason : "Sin motivo")
-             + " | Notas: "    + (notes  != null && !notes.isEmpty()  ? notes  : "Sin notas")
-             + " | Estado: "   + status;
+                + " | Paciente: " + (patient != null ? patient.getFullName() : "N/A")
+                + " | Médico: " + (doctor != null ? doctor.getFullName() : "N/A")
+                + " | Fecha: " + date
+                + " | " + startTime + " - " + endTime
+                + " | Motivo: " + (reason != null && !reason.isEmpty() ? reason : "Sin motivo")
+                + " | Notas: " + (notes != null && !notes.isEmpty() ? notes : "Sin notas")
+                + " | Estado: " + status + " (" + (state != null ? state.getNombre() : "N/A") + ")";
     }
-    
 }
